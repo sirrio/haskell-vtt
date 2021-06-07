@@ -7,6 +7,9 @@ import qualified Data.ByteString.Char8 as C
 import Network.Run.TCP (runTCPServer)
 import Network.Socket.ByteString (recv, sendAll)
 
+data TurnstileSate = Locked | Unlocked
+  deriving (Eq, Show)
+
 main :: IO ()
 main = runTCPServer Nothing "3000" talk
   where
