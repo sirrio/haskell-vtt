@@ -1,30 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 import Network.Socket
-    ( socketToHandle,
-      getAddrInfo,
-      withSocketsDo,
-      connect,
-      socket,
-      defaultProtocol,
-      AddrInfo(addrFamily, addrAddress),
-      SocketType(Stream),
-      Socket, sendBuf )
+    ( socketToHandle, getAddrInfo, withSocketsDo, connect, socket, defaultProtocol, AddrInfo(addrFamily, addrAddress), SocketType(Stream) )
 import System.IO
-    ( hSetBuffering,
-      hGetLine,
-      BufferMode(BlockBuffering, NoBuffering, LineBuffering),
-      IOMode(ReadWriteMode),
-      Handle, hFlush, char8)
 import qualified Data.ByteString.Char8 as Char8
-import GHC.IO.Handle (hFlushAll)
 import SDL
-import Linear (V4(..))
+import Linear (V2(..))
 import Control.Monad(void, unless, when, forM_)
 import Control.Monad.IO.Class(MonadIO (liftIO))
 import Data.Text(Text, empty)
 import Foreign.C.Types(CInt)
-import SDL.Input.Mouse (getRelativeMouseLocation)
 import Data.List
 import Data.Maybe
 import Control.Concurrent
@@ -37,13 +22,21 @@ import Data.List.Split
 import Control.Concurrent.STM
 import Text.Read (readMaybe)
 
-data World = World {
+data Player = Player {
   playerPos :: Point V2 Integer,
   playerName :: String
 }
 
-type RemotePlayer = TVar (Map Integer (Integer, Integer))
+initialPlayer :: Player
+initialPlayer = Player {
+  playerPos = P (V2 0 0),
+  playerName = "default"
+}
 
+updatePlayer :: Player -> String -> Point V2 Integer -> Player
+updatePlayer w n p = w { playerPos = p,  playerName = n }
+
+type RemotePlayer = TVar (Map Integer (Integer, Integer))
 
 newRmtPlayerMap :: Map Integer (Integer, Integer) -> IO RemotePlayer
 newRmtPlayerMap = newTVarIO
@@ -54,30 +47,9 @@ addRmtPlayer id pos m = do
     let newmap = Data.Map.insert id pos map
     writeTVar m newmap
 
--- newRP :: [(String, Integer, Integer)] 
-
--- data RemotePlayer = RemotePlayer { rpList :: Map String (Point V2 Integer) }
-
-initialWorld :: World
-initialWorld = World {
-  playerPos = P (V2 0 0),
-  playerName = "default"
-}
-
--- initialRemotePlayer :: RemotePlayer 
--- initialRemotePlayer = RemotePlayer {
---   rpList = Data.Map.empty
--- } 
-
-updateWorld :: World -> String -> Point V2 Integer -> World
-updateWorld w n p = w { playerPos = p,  playerName = n }
-
-type Msg = (Int, String)
-
 main :: IO ()
 main = do
   initializeAll
-  rmtPlayer <- newRmtPlayerMap Data.Map.empty
   addrInfos <- getAddrInfo Nothing (Just "127.0.0.1") (Just "3000")
   socket <- socket (addrFamily (head addrInfos)) Stream defaultProtocol
   connect socket (addrAddress (head addrInfos))
@@ -86,17 +58,16 @@ main = do
   putStrLn "Connection estabished: choose a name!"
   playername <- Char8.getLine
   Char8.hPut handle (Char8.append playername "s\n")
-  let updatedWorld = updateWorld initialWorld (Char8.unpack playername) (playerPos initialWorld)
-  -- let remotePlayer = Data.Map.empty
-  -- chan <- newChan
+  let nplayer = updatePlayer initialPlayer (Char8.unpack playername) (playerPos initialPlayer)
+  rmtPlayer <- newRmtPlayerMap Data.Map.empty
   window <- createWindow "VTT Haskell" defaultWindow
   renderer <- createRenderer window (-1) defaultRenderer
   forkIO $ handleConnection handle rmtPlayer
-  appLoop updatedWorld handle rmtPlayer renderer
+  appLoop nplayer handle rmtPlayer renderer
   destroyWindow window
 
-appLoop :: World -> Handle -> TVar (Map Integer (Integer, Integer)) -> Renderer -> IO ()
-appLoop world handle rmtPlayer renderer = do
+appLoop :: Player -> Handle -> TVar (Map Integer (Integer, Integer)) -> Renderer -> IO ()
+appLoop player handle rmtPlayer renderer = do
   events <- pollEvents
   let eventIsQPress event =
         case eventPayload event of
@@ -117,53 +88,21 @@ appLoop world handle rmtPlayer renderer = do
           _ -> Nothing
       mouseMotions = Data.Maybe.mapMaybe mouseMotionEventMap events
 
-  let w = updateWorld world (playerName world) (getMousePos mouseMotions (playerPos world))
-  -- Char8.hPut handle $ Char8.append (Char8.pack $ playerName world) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _x (playerPos world))) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _y (playerPos world))) "\n"
-  -- Char8.hPut handle (Char8.append (serialize (playerName world) (playerPos world)) "s\n")
-  Char8.hPut handle $ Char8.append (Char8.pack $ show (view _x (playerPos world))) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _y (playerPos world))) "\n"
-
-  -- if mouseMoved then putStrLn "TRUE" else putStrLn "False"
-  -- if fmap (payloadToIntent . SDL.eventPayload) == Hover TopLeft then putStrLn "yes" else putStrLn "not"    
-    -- forM_ mouseMotions $ \s -> do
-  --     let lastPos = fmap fromIntegral (mouseMotionEventPos  s)
-  --     liftIO w <- updateWorld world (P (V2 15 15))
-  --     print lastPos
-
-  -- reader <- forkIO $ fix $ \loop -> do
-  --   -- (_, line):list <- getChanContents commLine
-  --   ( _, line) <- readChan chan
-  --   putStrLn line
-  --   loop
-
-    -- let name:x:y:xs = splitOn "x" line
-    -- putStrLn ("X: " ++ x)
-    -- putStrLn ("Y: " ++ y)
-    -- fillRect renderer (Just (Rectangle (P (V2 (read x) (read y))) (V2 32 32)))
-
-      -- fillRect renderer (Just (Rectangle (P (V2 (read x) (read y))) (V2 32 32)))
-  -- rendererDrawColor renderer $= V4 255 0 0 255
-  -- fillRect renderer (Just (Rectangle (P (V2 50 50)) (V2 32 32)))
+  let nplayer = updatePlayer player (playerName player) (getMousePos mouseMotions (playerPos player))
+  Char8.hPut handle $ Char8.append (Char8.pack $ show (view _x (playerPos player))) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _y (playerPos player))) "!\n"
 
   clear renderer
   rendererDrawColor renderer $= V4 133 133 133 255
   fillRect renderer (Just (Rectangle (P (V2 0 0)) (V2 1024 800)))
 
-  rendererDrawColor renderer $= V4 255 0 0 255
   rmtPlayerMap <- readTVarIO rmtPlayer
-  mapM_ (\(_,(x, y)) ->   fillRect renderer (Just (Rectangle (P (V2 (fromIntegral x) (fromIntegral y))) (V2 32 32)))) (toList rmtPlayerMap)
-
-  rendererDrawColor renderer $= V4 255 0 0 255
-  fillRect renderer (Just (Rectangle (P (V2 50 50)) (V2 32 32)))
+  mapM_ (\(i, (x, y)) -> do
+    rendererDrawColor renderer $= V4 (fromIntegral i+1 `mod` 255) (fromIntegral (i+1)*25 `mod` 255) (fromIntegral (i+1)*50 `mod` 255) 255
+    fillRect renderer (Just (Rectangle (P (V2 (fromIntegral x) (fromIntegral y))) (V2 32 32)))) (toList rmtPlayerMap)
   rendererDrawColor renderer $= V4 0 0 0 255
-  fillRect renderer (Just (Rectangle (fmap fromIntegral (playerPos world)-P (V2 16 16)) (V2 32 32)))
+  fillRect renderer (Just (Rectangle (fmap fromIntegral (playerPos player)-P (V2 16 16)) (V2 32 32)))
   present renderer
-  unless qPressed (appLoop w handle rmtPlayer renderer)
-
-
--- serialize :: p -> Point V2 Integer -> Char8.ByteString
--- serialize name location = toStrict $ encode(42 :: Integer)
--- -- serialize name location = "helloworld"
-
+  unless qPressed (appLoop nplayer handle rmtPlayer renderer)
 
 getMousePos :: Num b => [MouseMotionEventData] -> Point V2 b -> Point V2 b
 getMousePos (x:xs) _ = fmap fromIntegral (mouseMotionEventPos  x)
@@ -173,18 +112,14 @@ getMousePos _ p = p
 handleConnection :: Handle -> TVar (Map Integer (Integer, Integer))-> IO b
 handleConnection handle rmtPlayer = do
   l <- hGetLine handle
-  -- putStrLn l
   let id:x:y:xs = splitOn "." l
   let intid = readMaybe id
   let intx = readMaybe x
   let inty = readMaybe y
+  putStrLn ("id:" ++ id ++ " x:" ++ x ++ " y:" ++ y)
   case (intid, intx, inty) of
     (Just id, Just x, Just y) -> atomically $ addRmtPlayer id (x, y) rmtPlayer
     _ -> putStrLn "Parsing error"
-
-  -- let map = Data.Map.insert "1" (P (V2 0 0)) Data.Map.empty
-  -- let broadcast msg = writeChan chan (0, msg)
-  -- broadcast l
   handleConnection handle rmtPlayer
 
 
