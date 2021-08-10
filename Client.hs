@@ -21,6 +21,7 @@ import Control.Monad.Fix (fix)
 import Data.List.Split
 import Control.Concurrent.STM
 import Text.Read (readMaybe)
+import System.Random
 
 data Player = Player {
   playerPos :: Point V2 Integer,
@@ -36,16 +37,16 @@ initialPlayer = Player {
 updatePlayer :: Player -> String -> Point V2 Integer -> Player
 updatePlayer w n p = w { playerPos = p,  playerName = n }
 
-type RemotePlayer = TVar (Map Integer (Integer, Integer))
+type RemotePlayer = TVar (Map String (Integer, Integer))
 
-newRmtPlayerMap :: Map Integer (Integer, Integer) -> IO RemotePlayer
+newRmtPlayerMap :: Map String (Integer, Integer) -> IO RemotePlayer
 newRmtPlayerMap = newTVarIO
 
-addRmtPlayer :: Integer -> (Integer, Integer) -> TVar (Map Integer (Integer, Integer)) -> STM ()
+addRmtPlayer :: String -> (Integer, Integer) -> TVar (Map String (Integer, Integer)) -> STM ()
 addRmtPlayer id pos m = do
     map <- readTVar m
     let newmap = Data.Map.insert id pos map
-    writeTVar m newmap
+    writeTVar m (Data.Map.union newmap map)
 
 main :: IO ()
 main = do
@@ -66,7 +67,7 @@ main = do
   appLoop nplayer handle rmtPlayer renderer
   destroyWindow window
 
-appLoop :: Player -> Handle -> TVar (Map Integer (Integer, Integer)) -> Renderer -> IO ()
+appLoop :: Player -> Handle -> TVar (Map String (Integer, Integer)) -> Renderer -> IO ()
 appLoop player handle rmtPlayer renderer = do
   events <- pollEvents
   let eventIsQPress event =
@@ -89,15 +90,14 @@ appLoop player handle rmtPlayer renderer = do
       mouseMotions = Data.Maybe.mapMaybe mouseMotionEventMap events
 
   let nplayer = updatePlayer player (playerName player) (getMousePos mouseMotions (playerPos player))
-  Char8.hPut handle $ Char8.append (Char8.pack $ show (view _x (playerPos player))) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _y (playerPos player))) "!\n"
-
+  Char8.hPut handle $ Char8.append (Char8.pack $ playerName player) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _x (playerPos player))) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _y (playerPos player))) "!\n"
   clear renderer
   rendererDrawColor renderer $= V4 133 133 133 255
   fillRect renderer (Just (Rectangle (P (V2 0 0)) (V2 1024 800)))
 
   rmtPlayerMap <- readTVarIO rmtPlayer
   mapM_ (\(i, (x, y)) -> do
-    rendererDrawColor renderer $= V4 (fromIntegral i+1 `mod` 255) (fromIntegral (i+1)*25 `mod` 255) (fromIntegral (i+1)*50 `mod` 255) 255
+    rendererDrawColor renderer $= V4 33 255 66 255
     fillRect renderer (Just (Rectangle (P (V2 (fromIntegral x) (fromIntegral y))) (V2 32 32)))) (toList rmtPlayerMap)
   rendererDrawColor renderer $= V4 0 0 0 255
   fillRect renderer (Just (Rectangle (fmap fromIntegral (playerPos player)-P (V2 16 16)) (V2 32 32)))
@@ -109,11 +109,11 @@ getMousePos (x:xs) _ = fmap fromIntegral (mouseMotionEventPos  x)
 getMousePos _ p = p
 
 
-handleConnection :: Handle -> TVar (Map Integer (Integer, Integer))-> IO b
+handleConnection :: Handle -> TVar (Map String (Integer, Integer))-> IO b
 handleConnection handle rmtPlayer = do
   l <- hGetLine handle
   let id:x:y:xs = splitOn "." l
-  let intid = readMaybe id
+  let intid = Just id
   let intx = readMaybe x
   let inty = readMaybe y
   putStrLn ("id:" ++ id ++ " x:" ++ x ++ " y:" ++ y)

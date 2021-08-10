@@ -56,7 +56,7 @@ runConn (sock, _) chan msgNum = do
 
     reader <- forkIO $ fix $ \loop -> do
         (nextNum, line) <- readChan commLine
-        when (msgNum /= nextNum) $ hPutStrLn hdl (show msgNum ++ "." ++ line)
+        when (msgNum /= nextNum) $ hPutStrLn hdl line
         loop
 
     handle (\(SomeException _) -> return ()) $ fix $ \loop -> do
