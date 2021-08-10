@@ -89,25 +89,37 @@ appLoop player handle rmtPlayer renderer = do
           _ -> Nothing
       mouseMotions = Data.Maybe.mapMaybe mouseMotionEventMap events
 
-  let nplayer = updatePlayer player (playerName player) (getMousePos mouseMotions (playerPos player))
-  Char8.hPut handle $ Char8.append (Char8.pack $ playerName player) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _x (playerPos player))) $ Char8.append "." $ Char8.append (Char8.pack $ show (view _y (playerPos player))) "!\n"
+  let pn = playerName player
+  let pp = getMousePos mouseMotions (playerPos player)
+  let ppx = view _x pp
+  let ppy = view _y pp
+  let nplayer = updatePlayer player pn (P(V2 ppx ppy))
+  let py = view _y (playerPos player)
+  let px = view _x (playerPos player)
+  Char8.hPut handle $ Char8.append (Char8.pack $ playerName player) $ Char8.append "." $ Char8.append (Char8.pack $ show px) $ Char8.append "." $ Char8.append (Char8.pack $ show py) "!\n"
   clear renderer
-  rendererDrawColor renderer $= V4 133 133 133 255
+  rendererDrawColor renderer $= V4 255 255 255 255
   fillRect renderer (Just (Rectangle (P (V2 0 0)) (V2 1024 800)))
-
+  rendererDrawColor renderer $= V4 222 222 222 255
+  forM_ [1 .. 32] $ \s -> do
+    drawLine renderer (P (V2 (s*32) 0)) (P (V2 (s*32) 800))
+    drawLine renderer (P (V2 0 (s*32))) (P (V2 1024 (s*32)))
   rmtPlayerMap <- readTVarIO rmtPlayer
   mapM_ (\(i, (x, y)) -> do
     rendererDrawColor renderer $= V4 33 255 66 255
-    fillRect renderer (Just (Rectangle (P (V2 (fromIntegral x) (fromIntegral y))) (V2 32 32)))) (toList rmtPlayerMap)
+    fillRect renderer (Just (Rectangle (P (V2 (fromIntegral $ snapping x) (fromIntegral $ snapping y))) (V2 32 32)))) (toList rmtPlayerMap)
+  -- fillRect renderer (Just (Rectangle (fmap fromIntegral (playerPos player)-P (V2 16 16)) (V2 32 32)))
   rendererDrawColor renderer $= V4 0 0 0 255
-  fillRect renderer (Just (Rectangle (fmap fromIntegral (playerPos player)-P (V2 16 16)) (V2 32 32)))
+  fillRect renderer (Just (Rectangle (P (V2 (fromIntegral $ snapping px) (fromIntegral $ snapping py))) (V2 32 32)))
   present renderer
   unless qPressed (appLoop nplayer handle rmtPlayer renderer)
+
+snapping :: Integral p => p -> p
+snapping x= div x 32 * 32
 
 getMousePos :: Num b => [MouseMotionEventData] -> Point V2 b -> Point V2 b
 getMousePos (x:xs) _ = fmap fromIntegral (mouseMotionEventPos  x)
 getMousePos _ p = p
-
 
 handleConnection :: Handle -> TVar (Map String (Integer, Integer))-> IO b
 handleConnection handle rmtPlayer = do
